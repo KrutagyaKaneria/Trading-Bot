@@ -1,10 +1,20 @@
 import os
+import random
 
 import streamlit as st
 from dotenv import load_dotenv
 
 from bot.client import BinanceFuturesClient
-from bot.orders import place_order
+from bot.orders import OrderResult, place_order
+from bot.validators import (
+    ValidationError,
+    validate_order_type,
+    validate_price,
+    validate_quantity,
+    validate_side,
+    validate_stop_price,
+    validate_symbol,
+)
 
 load_dotenv()
 
@@ -38,6 +48,23 @@ st.markdown("""
         color: #f59e0b;
         letter-spacing: 2px;
         margin-bottom: 1.5rem;
+    }
+    .demo-badge {
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.7rem;
+        color: #f59e0b;
+        letter-spacing: 2px;
+        margin-bottom: 0.5rem;
+    }
+    .demo-banner {
+        background-color: #3d3000;
+        border-left: 3px solid #f59e0b;
+        padding: 1rem 1.2rem;
+        border-radius: 2px;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.85rem;
+        margin-bottom: 1rem;
+        color: #fbbf24;
     }
     label {
         font-family: 'Courier New', Courier, monospace !important;
@@ -135,28 +162,31 @@ st.markdown("""
         margin-top: 1rem;
     }
     hr { border-color: #1f2937; margin: 1.5rem 0; }
-    .field-group { margin-bottom: 0.8rem; }
     div[data-testid="stNotification"] { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<h1>BINANCE FUTURES TERMINAL</h1>", unsafe_allow_html=True)
-st.markdown("<div class='testnet-badge'>TESTNET • USDT-M</div>", unsafe_allow_html=True)
 
 api_key = os.environ.get("BINANCE_API_KEY")
 api_secret = os.environ.get("BINANCE_API_SECRET")
-if not api_key or not api_secret:
+demo_mode = not api_key or not api_secret
+
+if demo_mode:
     st.markdown(
-        "<div class='failure-box'>BINANCE_API_KEY and BINANCE_API_SECRET must be set in .env</div>",
+        "<div class='demo-banner'>&#9888;&#65039; Running in DEMO MODE — no API credentials found. "
+        "Fill in .env with your Binance Testnet API key/secret to place real orders.</div>",
         unsafe_allow_html=True,
     )
-    st.stop()
+    st.markdown("<div class='demo-badge'>DEMO • USDT-M</div>", unsafe_allow_html=True)
+else:
+    st.markdown("<div class='testnet-badge'>TESTNET • USDT-M</div>", unsafe_allow_html=True)
+    client = BinanceFuturesClient(
+        api_key=api_key,
+        api_secret=api_secret,
+        base_url="https://testnet.binancefuture.com",
+    )
 
-client = BinanceFuturesClient(
-    api_key=api_key,
-    api_secret=api_secret,
-    base_url="https://testnet.binancefuture.com",
-)
 
 symbol = st.text_input("Symbol", value="BTCUSDT", placeholder="e.g. BTCUSDT", key="symbol_input")
 
@@ -178,11 +208,12 @@ if order_type == "STOP":
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-if st.button("PLACE ORDER", type="primary", use_container_width=True):
-    with st.spinner("Placing order on testnet..."):
-        result = place_order(client, symbol, side, order_type, quantity, price, stop_price)
 
-    side_tag = f"<span class='{'buy-text' if result.request_summary.get('side') == 'BUY' else 'sell-text'}'> {result.request_summary.get('side')}</span>"
+def _render_result(result, is_demo):
+    side_tag = (
+        f"<span class='{'buy-text' if result.request_summary.get('side') == 'BUY' else 'sell-text'}'>"
+        f" {result.request_summary.get('side')}</span>"
+    )
 
     summary_rows = ""
     for key, val in result.request_summary.items():
@@ -190,7 +221,7 @@ if st.button("PLACE ORDER", type="primary", use_container_width=True):
             label = key.replace("_", " ").title()
             val_str = str(val)
             if key in ("price", "stop_price", "quantity"):
-                val_str = f"<span class='metric-value'>{val}</span>"
+                val_str = f"<span class='value'>{val}</span>"
             elif key == "side":
                 val_str = side_tag
             else:
@@ -207,19 +238,91 @@ if st.button("PLACE ORDER", type="primary", use_container_width=True):
         resp_lines = ""
         for field in ("orderId", "status", "executedQty", "avgPrice", "cumQuote"):
             if field in resp:
-                resp_lines += f"<div class='row'><span class='label'>{field}</span><span class='value'>{resp[field]}</span></div>"
+                resp_lines += (
+                    f"<div class='row'><span class='label'>{field}</span>"
+                    f"<span class='value'>{resp[field]}</span></div>"
+                )
+
+        if is_demo:
+            title = "<span class='buy-text'>[DEMO] SUCCESS</span> — Simulated order — not sent to Binance."
+        else:
+            title = f"<span class='{'buy-text' if result.request_summary.get('side') == 'BUY' else 'sell-text'}'>SUCCESS</span> — order placed"
+
         st.markdown(
-            f"<div class='success-box'>"
-            f"<div style='color:#00c853; font-weight:700; margin-bottom:0.5rem;'>"
-            f"<span class='{'buy-text' if side == 'BUY' else 'sell-text'}'>SUCCESS</span> — order placed</div>"
-            f"{resp_lines}</div>",
+            f"<div class='success-box'><div style='color:#00c853; font-weight:700; "
+            f"margin-bottom:0.5rem;'>{title}</div>{resp_lines}</div>",
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
             f"<div class='failure-box'>"
             f"<div style='color:#ff1744; font-weight:700; margin-bottom:0.3rem;'>FAILED</div>"
-            f"<span style='color:#d0d4dc;'>{result.error}</span>"
-            f"</div>",
+            f"<span style='color:#d0d4dc;'>{result.error}</span></div>",
             unsafe_allow_html=True,
         )
+
+
+if st.button("PLACE ORDER", type="primary", use_container_width=True):
+    if demo_mode:
+        try:
+            v_symbol = validate_symbol(symbol)
+            v_side = validate_side(side)
+            v_type = validate_order_type(order_type)
+            v_qty = validate_quantity(quantity)
+            v_price = validate_price(price, v_type)
+            v_stop = validate_stop_price(stop_price, v_type)
+        except ValidationError as e:
+            st.markdown(
+                f"<div class='failure-box'>"
+                f"<div style='color:#ff1744;font-weight:700;margin-bottom:0.3rem;'>VALIDATION ERROR</div>"
+                f"<span style='color:#d0d4dc;'>{e}</span></div>",
+                unsafe_allow_html=True,
+            )
+            st.stop()
+
+        request_summary = {
+            "symbol": v_symbol,
+            "side": v_side,
+            "order_type": v_type,
+            "quantity": v_qty,
+        }
+        if v_price is not None:
+            request_summary["price"] = v_price
+        if v_stop is not None:
+            request_summary["stop_price"] = v_stop
+        if v_type in ("LIMIT", "STOP"):
+            request_summary["time_in_force"] = "GTC"
+
+        if "BTC" in v_symbol:
+            base_price = 65000.0
+        elif "ETH" in v_symbol:
+            base_price = 3500.0
+        else:
+            base_price = 100.0
+        jitter = base_price * random.uniform(-0.01, 0.01)
+        fake_avg_price = round(base_price + jitter, 2)
+
+        is_market = v_type == "MARKET"
+        fake_executed_qty = str(v_qty) if is_market else "0.000"
+
+        if "order_id_counter" not in st.session_state:
+            st.session_state.order_id_counter = 1000000
+        st.session_state.order_id_counter += 1
+
+        fake_response = {
+            "orderId": st.session_state.order_id_counter,
+            "status": "NEW",
+            "executedQty": fake_executed_qty,
+            "avgPrice": str(fake_avg_price),
+        }
+        if not is_market:
+            fake_response["cumQuote"] = "0.000"
+
+        result = OrderResult(
+            success=True, request_summary=request_summary, response=fake_response
+        )
+        _render_result(result, is_demo=True)
+    else:
+        with st.spinner("Placing order on testnet..."):
+            result = place_order(client, symbol, side, order_type, quantity, price, stop_price)
+        _render_result(result, is_demo=False)

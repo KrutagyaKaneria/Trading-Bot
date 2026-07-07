@@ -52,6 +52,16 @@ streamlit run app.py
 
 Opens a browser-based trading terminal at `http://localhost:8501`. Credentials are loaded from `.env` automatically.
 
+### Demo Mode
+
+If you run `streamlit run app.py` **without** a configured `.env` file, the UI automatically enters demo mode:
+
+- A persistent amber warning banner is shown at the top explaining that credentials are missing.
+- The full order entry form is still rendered and fully interactive.
+- Clicking **Place Order** generates a **mock** `OrderResult` with a fake incrementing `orderId`, a plausible `avgPrice` (randomised per symbol), and the correct `executedQty`. No API call is made, nothing is logged to `logs/trading_bot.log`.
+- The result is displayed using the same success/failure boxes as real orders, but with `[DEMO]` prepended to the success message.
+- Once you configure `.env` with real credentials and restart the app, demo mode disappears and real orders are placed.
+
 ## Bonus Features
 
 Every bonus feature is implemented and ready to test. Try each with the exact command below:
