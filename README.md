@@ -36,26 +36,82 @@ trading_bot/
     # Edit .env — fill in BINANCE_API_KEY and BINANCE_API_SECRET
     ```
 
+## Running Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Usage
+
+### Non-interactive (argparse) mode
 
 All commands require `--symbol`, `--side`, `--type`, and `--quantity`.
 
-### MARKET order
+#### MARKET order
 
 ```bash
 python cli.py --symbol BTCUSDT --side BUY --type MARKET --quantity 0.01
 ```
 
-### LIMIT order
+#### LIMIT order
 
 ```bash
 python cli.py --symbol BTCUSDT --side SELL --type LIMIT --quantity 0.01 --price 35000
 ```
 
-### STOP order (stop-limit)
+#### STOP order (stop-limit)
 
 ```bash
 python cli.py --symbol BTCUSDT --side BUY --type STOP --quantity 0.01 --price 30000 --stop-price 31000
+```
+
+### Interactive mode
+
+Run with no arguments or `--interactive`. Prompts are validated inline — bad input is rejected and re-prompted instead of crashing.
+
+```
+$ python cli.py
+Interactive order entry
+
+Symbol (e.g. BTCUSDT): BTCUSDT
+Side:
+  1. BUY
+  2. SELL
+Choice: 1
+Order type:
+  1. MARKET
+  2. LIMIT
+  3. STOP
+Choice: 2
+Quantity: 0.01
+Price (required for LIMIT): 35000
+
+--- Order Summary ---
+  symbol: BTCUSDT
+  side: BUY
+  order_type: LIMIT
+  quantity: 0.01
+  price: 35000.0
+  time_in_force: GTC
+
+Confirm and place order? (y/n): y
+
+--- Order Request Summary ---
+  symbol: BTCUSDT
+  side: BUY
+  order_type: LIMIT
+  quantity: 0.01
+  price: 35000.0
+  time_in_force: GTC
+
+--- Order Response ---
+  orderId: 123456789
+  status: NEW
+  executedQty: 0.000
+
+✅ SUCCESS: order placed.
 ```
 
 ## Sample Output
