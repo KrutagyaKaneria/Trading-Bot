@@ -1,8 +1,18 @@
+import time
 from dataclasses import dataclass, asdict
 
 from bot.client import BinanceAPIError, BinanceNetworkError
 from bot.logging_config import setup_logger
-from bot.validators import ValidationError, validate_symbol, validate_side, validate_order_type, validate_quantity, validate_price, validate_stop_price
+from bot.validators import (
+    ValidationError,
+    validate_order_type,
+    validate_price,
+    validate_quantity,
+    validate_side,
+    validate_stop_price,
+    validate_symbol,
+    validate_twap_params,
+)
 
 logger = setup_logger(__name__)
 
@@ -73,3 +83,71 @@ def place_order(client, symbol, side, order_type, quantity, price=None, stop_pri
 
     logger.info("Order placed successfully: %s", response)
     return OrderResult(success=True, request_summary=request_summary, response=response)
+
+
+@dataclass
+class TwapResult:
+    success: bool
+    request_summary: dict
+    slice_results: list[OrderResult]
+    succeeded: int
+    failed: int
+    error: str | None = None
+
+
+def place_twap_order(client, symbol, side, total_quantity, num_slices, interval_seconds):
+    try:
+        symbol = validate_symbol(symbol)
+        side = validate_side(side)
+        total_quantity = validate_quantity(total_quantity)
+        num_slices, interval_seconds = validate_twap_params(num_slices, interval_seconds)
+    except ValidationError as e:
+        request_summary = {
+            "symbol": symbol,
+            "side": side,
+            "total_quantity": total_quantity,
+            "num_slices": num_slices,
+            "interval_seconds": interval_seconds,
+        }
+        logger.warning("TWAP validation failed: %s", e)
+        return TwapResult(
+            success=False,
+            request_summary=request_summary,
+            slice_results=[],
+            succeeded=0,
+            failed=0,
+            error=str(e),
+        )
+
+    request_summary = {
+        "symbol": symbol,
+        "side": side,
+        "total_quantity": total_quantity,
+        "num_slices": num_slices,
+        "interval_seconds": interval_seconds,
+    }
+
+    logger.info("TWAP order: %s", request_summary)
+
+    slice_qty = total_quantity / num_slices
+    slice_results = []
+
+    for i in range(num_slices):
+        logger.info("TWAP slice %d/%d: placing %s %s qty=%s", i + 1, num_slices, symbol, side, slice_qty)
+        order_result = place_order(client, symbol, side, "MARKET", slice_qty)
+        slice_results.append(order_result)
+        if i < num_slices - 1:
+            time.sleep(interval_seconds)
+
+    succeeded = sum(1 for r in slice_results if r.success)
+    failed = len(slice_results) - succeeded
+
+    logger.info("TWAP complete: %d succeeded, %d failed", succeeded, failed)
+
+    return TwapResult(
+        success=failed == 0,
+        request_summary=request_summary,
+        slice_results=slice_results,
+        succeeded=succeeded,
+        failed=failed,
+    )

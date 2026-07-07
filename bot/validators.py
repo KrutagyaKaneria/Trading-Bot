@@ -2,7 +2,7 @@ import re
 
 SYMBOL_PATTERN = re.compile(r"^[A-Z0-9]{5,20}$")
 VALID_SIDES = {"BUY", "SELL"}
-VALID_ORDER_TYPES = {"MARKET", "LIMIT", "STOP"}
+VALID_ORDER_TYPES = {"MARKET", "LIMIT", "STOP", "TWAP"}
 
 
 class ValidationError(ValueError):
@@ -52,9 +52,9 @@ def validate_quantity(quantity):
 
 def validate_price(price, order_type):
     order_type = validate_order_type(order_type)
-    if order_type == "MARKET":
+    if order_type in ("MARKET", "TWAP"):
         if price is not None:
-            raise ValidationError("Price must not be provided for MARKET orders.")
+            raise ValidationError(f"Price must not be provided for {order_type} orders.")
         return None
     if price is None:
         raise ValidationError(f"Price is required for {order_type} orders.")
@@ -82,3 +82,21 @@ def validate_stop_price(stop_price, order_type):
     if sp <= 0:
         raise ValidationError(f"Stop price must be greater than 0, got {sp}.")
     return sp
+
+
+def validate_twap_params(num_slices, interval_seconds):
+    try:
+        ns = int(num_slices)
+    except (TypeError, ValueError):
+        raise ValidationError(f"Number of slices '{num_slices}' is not a valid integer.")
+    if ns < 2:
+        raise ValidationError(f"Number of slices must be at least 2, got {ns}.")
+
+    try:
+        sec = int(interval_seconds)
+    except (TypeError, ValueError):
+        raise ValidationError(f"Interval '{interval_seconds}' is not a valid integer.")
+    if sec < 1:
+        raise ValidationError(f"Interval must be at least 1 second, got {sec}.")
+
+    return ns, sec

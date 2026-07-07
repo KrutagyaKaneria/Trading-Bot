@@ -6,8 +6,17 @@ from dotenv import load_dotenv
 
 from bot.client import BinanceFuturesClient
 from bot.logging_config import setup_logger
-from bot.orders import place_order
-from bot.validators import ValidationError, validate_order_type, validate_price, validate_quantity, validate_side, validate_stop_price, validate_symbol
+from bot.orders import place_order, place_twap_order, TwapResult
+from bot.validators import (
+    ValidationError,
+    validate_order_type,
+    validate_price,
+    validate_quantity,
+    validate_side,
+    validate_stop_price,
+    validate_symbol,
+    validate_twap_params,
+)
 
 logger = setup_logger(__name__)
 
@@ -16,10 +25,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Place an order on Binance Futures Testnet.")
     parser.add_argument("--symbol", required=True, help="Trading pair, e.g. BTCUSDT")
     parser.add_argument("--side", required=True, choices=["BUY", "SELL", "buy", "sell"], help="BUY or SELL")
-    parser.add_argument("--type", required=True, choices=["MARKET", "LIMIT", "STOP", "market", "limit", "stop"], help="Order type")
-    parser.add_argument("--quantity", required=True, help="Order quantity")
+    parser.add_argument("--type", required=True, choices=["MARKET", "LIMIT", "STOP", "TWAP", "market", "limit", "stop", "twap"], help="Order type")
+    parser.add_argument("--quantity", required=True, help="Order quantity (total for TWAP)")
     parser.add_argument("--price", help="Price (required for LIMIT/STOP)")
     parser.add_argument("--stop-price", help="Stop price (required for STOP)")
+    parser.add_argument("--slices", type=int, help="Number of TWAP slices (required for TWAP)")
+    parser.add_argument("--interval", type=int, help="Seconds between TWAP slices (required for TWAP)")
     parser.add_argument("--base-url", default="https://testnet.binancefuture.com", help="Binance Futures base URL")
     return parser.parse_args()
 
@@ -55,7 +66,7 @@ def _prompt(prompt_text, validator, *validator_args):
 
 
 SIDE_MENU = {1: "BUY", 2: "SELL"}
-TYPE_MENU = {1: "MARKET", 2: "LIMIT", 3: "STOP"}
+TYPE_MENU = {1: "MARKET", 2: "LIMIT", 3: "STOP", 4: "TWAP"}
 
 
 def _pick(prompt_text, menu):
@@ -75,45 +86,81 @@ def _pick(prompt_text, menu):
 def interactive_mode(client):
     print("Interactive order entry\n")
 
-    symbol = _prompt("Symbol (e.g. BTCUSDT): ", validate_symbol)
-    side = _pick("Side:", SIDE_MENU)
-    order_type = _pick("Order type:", TYPE_MENU)
-    quantity = _prompt("Quantity: ", validate_quantity)
-    price = None
-    if order_type != "MARKET":
-        price = _prompt(f"Price (required for {order_type}): ", validate_price, order_type)
-    stop_price = None
-    if order_type == "STOP":
-        stop_price = _prompt("Stop price (required for STOP): ", validate_stop_price, order_type)
-
-    summary = {
-        "symbol": symbol,
-        "side": side,
-        "order_type": order_type,
-        "quantity": quantity,
-    }
-    if price is not None:
-        summary["price"] = price
-    if stop_price is not None:
-        summary["stop_price"] = stop_price
-    if order_type in ("LIMIT", "STOP"):
-        summary["time_in_force"] = "GTC"
-
-    print()
-    print("--- Order Summary ---")
-    for k, v in summary.items():
-        print(f"  {k}: {v}")
-
     while True:
-        confirm = input("\nConfirm and place order? (y/n): ").strip().lower()
-        if confirm == "y":
-            break
-        if confirm == "n":
-            print("Order cancelled.")
-            return
+        symbol = _prompt("Symbol (e.g. BTCUSDT): ", validate_symbol)
+        side = _pick("Side:", SIDE_MENU)
+        order_type = _pick("Order type:", TYPE_MENU)
 
-    result = place_order(client, symbol, side, order_type, quantity, price, stop_price)
-    _print_result(result)
+        if order_type == "TWAP":
+            total_quantity = _prompt("Total quantity: ", validate_quantity)
+            while True:
+                ns_raw = input("Number of slices: ").strip()
+                sec_raw = input("Seconds between slices: ").strip()
+                try:
+                    num_slices, interval_seconds = validate_twap_params(ns_raw, sec_raw)
+                    break
+                except ValidationError as e:
+                    print(f"  Invalid: {e}")
+
+            summary = {
+                "symbol": symbol,
+                "side": side,
+                "order_type": order_type,
+                "total_quantity": total_quantity,
+                "num_slices": num_slices,
+                "interval_seconds": interval_seconds,
+            }
+
+            print()
+            print("--- Order Summary ---")
+            for k, v in summary.items():
+                print(f"  {k}: {v}")
+
+            while True:
+                confirm = input("\nConfirm and place order? (y/n): ").strip().lower()
+                if confirm == "y":
+                    result = place_twap_order(client, symbol, side, total_quantity, num_slices, interval_seconds)
+                    _print_twap_result(result)
+                    return
+                if confirm == "n":
+                    print("\nRestarting input.\n")
+                    break
+        else:
+            quantity = _prompt("Quantity: ", validate_quantity)
+            price = None
+            if order_type != "MARKET":
+                price = _prompt(f"Price (required for {order_type}): ", validate_price, order_type)
+            stop_price = None
+            if order_type == "STOP":
+                stop_price = _prompt("Stop price (required for STOP): ", validate_stop_price, order_type)
+
+            summary = {
+                "symbol": symbol,
+                "side": side,
+                "order_type": order_type,
+                "quantity": quantity,
+            }
+            if price is not None:
+                summary["price"] = price
+            if stop_price is not None:
+                summary["stop_price"] = stop_price
+            if order_type in ("LIMIT", "STOP"):
+                summary["time_in_force"] = "GTC"
+
+            print()
+            print("--- Order Summary ---")
+            for k, v in summary.items():
+                print(f"  {k}: {v}")
+
+            while True:
+                confirm = input("\nConfirm and place order? (y/n): ").strip().lower()
+                if confirm == "y":
+                    result = place_order(client, symbol, side, order_type, quantity, price, stop_price)
+                    _print_result(result)
+                    return
+                if confirm == "n":
+                    print("\nRestarting input.\n")
+                    break
 
 
 def main():
@@ -139,6 +186,24 @@ def main():
     args = parse_args()
     client = BinanceFuturesClient(api_key=api_key, api_secret=api_secret, base_url=args.base_url)
 
+    if args.type.upper() == "TWAP":
+        if args.slices is None:
+            print("Error: --slices is required for TWAP orders.", file=sys.stderr)
+            sys.exit(1)
+        if args.interval is None:
+            print("Error: --interval is required for TWAP orders.", file=sys.stderr)
+            sys.exit(1)
+        result = place_twap_order(
+            client=client,
+            symbol=args.symbol,
+            side=args.side,
+            total_quantity=args.quantity,
+            num_slices=args.slices,
+            interval_seconds=args.interval,
+        )
+        _print_twap_result(result)
+        return
+
     result = place_order(
         client=client,
         symbol=args.symbol,
@@ -150,6 +215,31 @@ def main():
     )
 
     _print_result(result)
+
+
+def _print_twap_result(result):
+    print()
+    print("--- TWAP Request Summary ---")
+    for key, val in result.request_summary.items():
+        if val is not None:
+            print(f"  {key}: {val}")
+
+    print()
+    print(f"--- Slices: {result.succeeded} succeeded, {result.failed} failed ---")
+    for i, sr in enumerate(result.slice_results):
+        status = "\u2705" if sr.success else "\u274c"
+        print(f"  Slice {i+1}: {status}  {sr.error or 'ok'}")
+        if sr.response:
+            oid = sr.response.get("orderId", "?")
+            st = sr.response.get("status", "?")
+            print(f"          orderId={oid} status={st}")
+
+    if result.success:
+        print()
+        print("\u2705 SUCCESS: all TWAP slices placed.")
+    else:
+        print(f"\u274c FAILED: {result.failed} slice(s) failed — see details above.")
+        sys.exit(1)
 
 
 def entry_point():

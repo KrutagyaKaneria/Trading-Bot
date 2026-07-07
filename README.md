@@ -43,6 +43,26 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
+## Running the UI
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Opens a browser-based trading terminal at `http://localhost:8501`. Credentials are loaded from `.env` automatically.
+
+## Bonus Features
+
+Every bonus feature is implemented and ready to test. Try each with the exact command below:
+
+| Feature | Try it |
+|---|---|
+| **STOP order type** (stop-limit) | `python cli.py --symbol BTCUSDT --side BUY --type STOP --quantity 0.01 --price 45000 --stop-price 46000` |
+| **Interactive CLI mode** (step-by-step with menus) | `python cli.py --interactive` (or just `python cli.py` with no arguments) |
+| **Streamlit UI** (dark-theme trading terminal) | `streamlit run app.py` |
+| **TWAP order type** (sliced market orders) | `python cli.py --symbol BTCUSDT --side BUY --type TWAP --quantity 0.03 --slices 3 --interval 2` |
+
 ## Usage
 
 ### Non-interactive (argparse) mode
@@ -66,6 +86,14 @@ python cli.py --symbol BTCUSDT --side SELL --type LIMIT --quantity 0.01 --price 
 ```bash
 python cli.py --symbol BTCUSDT --side BUY --type STOP --quantity 0.01 --price 30000 --stop-price 31000
 ```
+
+#### TWAP order
+
+```bash
+python cli.py --symbol BTCUSDT --side BUY --type TWAP --quantity 0.03 --slices 3 --interval 2
+```
+
+Note: TWAP executes synchronously — it blocks for the full duration (num_slices × interval_seconds). Designed for testnet demonstration only, not production use.
 
 ### Interactive mode
 

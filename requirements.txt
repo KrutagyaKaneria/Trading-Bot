@@ -1,2 +1,3 @@
 requests
 python-dotenv
+streamlit      # optional — run UI with: streamlit run app.py

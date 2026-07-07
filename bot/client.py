@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import logging
 import time
 import urllib.parse
 
@@ -67,3 +68,25 @@ class BinanceFuturesClient:
             raise BinanceAPIError(msg)
 
         return resp.json()
+
+    def place_twap_order(self, symbol, side, total_quantity, num_slices, interval_seconds):
+        slice_qty = total_quantity / num_slices
+        slice_logger = logging.getLogger(f"{__name__}.twap")
+
+        responses = []
+        for i in range(num_slices):
+            slice_logger.info(
+                "TWAP slice %d/%d: %s %s qty=%s",
+                i + 1, num_slices, symbol, side, slice_qty,
+            )
+            try:
+                resp = self.place_order(symbol, side, "MARKET", slice_qty)
+                responses.append(("ok", resp))
+            except (BinanceAPIError, BinanceNetworkError) as e:
+                slice_logger.error("TWAP slice %d/%d failed: %s", i + 1, num_slices, e)
+                responses.append(("error", str(e)))
+
+            if i < num_slices - 1:
+                time.sleep(interval_seconds)
+
+        return responses
