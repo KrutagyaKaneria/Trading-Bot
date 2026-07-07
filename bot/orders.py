@@ -47,6 +47,9 @@ def place_order(client, symbol, side, order_type, quantity, price=None, stop_pri
         "stop_price": stop_price,
     }
 
+    if order_type in ("LIMIT", "STOP"):
+        request_summary["time_in_force"] = "GTC"
+
     logger.info("Placing order: %s", request_summary)
 
     try:
